@@ -1,0 +1,4 @@
+burp_configuration.json
+target/**
+.vscode/**
+token_tailor.jar
