@@ -4,7 +4,7 @@ _If you find this Burp Extension useful, please consider giving it a star_ 🙏
 # Token Tailor ![logo](assets/logo_50.png)
 
 ## About
-Token Tailor is a Burp Suite Community Edition extension that aims to simplify security testing by automating authantication (JWT and Basic) renewal.
+Token Tailor is a Burp Suite Community Edition extension that aims to simplify security testing by automating authentication (JWT and Basic) renewal.
 
 This extension eliminates the need for manual token extraction and updates, reducing scanning errors and streamlining your workflow.
 
