@@ -44,9 +44,6 @@ import javax.swing.event.HyperlinkEvent;
 import javax.swing.event.HyperlinkListener;
 import javax.swing.text.Style;
 
-import com.google.gson.Gson;
-import com.google.gson.reflect.TypeToken;
-
 import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.core.ByteArray;
 import burp.api.montoya.core.Range;
@@ -61,12 +58,12 @@ import burp.api.montoya.logging.Logging;
 import burp.api.montoya.persistence.PersistedList;
 import burp.api.montoya.ui.editor.HttpRequestEditor;
 import burp.api.montoya.ui.editor.HttpResponseEditor;
+import burp.api.montoya.utilities.json.JsonUtils;
 
 import javax.swing.filechooser.FileNameExtensionFilter;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
-import java.lang.reflect.Type;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.time.LocalDateTime;
@@ -686,44 +683,43 @@ public class TokenTailorGUI extends JPanel {
         return null;
     }
 
-    private String currentConfiguration() {
+    private String escapeJson(String input) {
+        return input
+            .replace("\\", "\\\\")
+            .replace("\"", "\\\"")
+            .replace("\n", "\\n")
+            .replace("\r", "\\r")
+            .replace("\t", "\\t");
+    }
 
-        // Create a list to hold the combined objects
-        List<Object> combinedList = new ArrayList<>();
+    private String currentConfiguration() {
+        JsonUtils jsonUtils = montoyaApi.utilities().jsonUtils();
+        String json = "[]"; // Start with an empty array
 
         for (boolean b : http_check) {
-            var map = new java.util.HashMap<String, Object>();
-            map.put("http_check", b);
-
-            combinedList.add(map);
+            String newJson = "{ \"http_check\": " + b + " }";
+            json = jsonUtils.add(json, "[]", newJson);
         }
 
         for (HttpRequestResponse rr : req_res) {
-            var map = new java.util.HashMap<String, Object>();
-            map.put("Response", rr.response().toString());
-            map.put("Request", rr.request().toString());
-
-            combinedList.add(map);
+            String newJson = "{ " +
+                    "\"Response\": \"" + escapeJson(rr.response().toString()) + "\", " +
+                    "\"Request\": \"" + escapeJson(rr.request().toString()) + "\" " +
+                    "}";
+            json = jsonUtils.add(json, "[]", newJson);
         }
 
         for (HttpResponse ec : expired_conditions) {
-            var map = new java.util.HashMap<String, Object>();
-            map.put("expired_conditions", ec.toString());
-
-            combinedList.add(map);
+            String newJson = "{ \"expired_conditions\": \"" + escapeJson(ec.toString()) + "\" }";
+            json = jsonUtils.add(json, "[]", newJson);
         }
 
         for (boolean tc : tools_check) {
-            var map = new java.util.HashMap<String, Object>();
-            map.put("tools_check", tc);
-
-            combinedList.add(map);
+            String newJson = "{ \"tools_check\": " + tc + " }";
+            json = jsonUtils.add(json, "[]", newJson);
         }
 
-        //Convert the list of combined objects to JSON
-        Gson gson = new Gson();
-        return gson.toJson(combinedList);
-
+        return json;
     }
 
     private void exportJsonFile(String jsonContent) {
@@ -763,27 +759,54 @@ public class TokenTailorGUI extends JPanel {
 
     private void setNewConfiguration(String content) {
         if (content != null) {
-            
-            // Parse JSON to check the content format
-            Gson gson = new Gson();
-            Type listType = new TypeToken<List<Map<String, Object>>>() {}.getType();
-            List<Map<String, Object>> dataList;
-            
+            JsonUtils jsonUtils = montoyaApi.utilities().jsonUtils();
+    
+            List<Map<String, Object>> dataList = new ArrayList<>();
+    
             try {
-                dataList = gson.fromJson(content, listType);
+                int index = 0;
+                while (true) {
+                    String itemJson;
+                    try {
+                        itemJson = jsonUtils.read(content, "[" + index + "]");
+                    } catch (Exception e) {
+                        break;
+                    }
+    
+                    if (itemJson == null || itemJson.isEmpty()) {
+                        break;
+                    }
+    
+                    Map<String, Object> map = new HashMap<>();
+    
+                    String[] keys = {"http_check", "expired_conditions", "tools_check", "Request", "Response"};
+                    for (String key : keys) {
+                        if (jsonUtils.read(itemJson, key) != null) {
+                            Object value;
+                            if (key.equals("http_check") || key.equals("tools_check")) {
+                                value = jsonUtils.readBoolean(itemJson, key);
+                            } else {
+                                value = jsonUtils.readString(itemJson, key);
+                            }
+                            map.put(key, value);
+                        }
+                    }
+    
+                    dataList.add(map);
+                    index++;
+                }
             } catch (Exception e) {
                 JOptionPane.showMessageDialog(burpFrame, "Invalid JSON format.");
-                logTextArea.insert(getFormattedTime()+" - Invalid JSON format.\n", 0);
+                logTextArea.insert(getFormattedTime() + " - Invalid JSON format.\n", 0);
                 return;
             }
     
-            // Validate the content structure
+            // Validate the content structure 
             if (!isValidContent(dataList)) {
                 JOptionPane.showMessageDialog(burpFrame, "Invalid content structure.");
-                logTextArea.insert(getFormattedTime()+" - Invalid content structure\n", 0);
+                logTextArea.insert(getFormattedTime() + " - Invalid content structure\n", 0);
                 return;
             }
-
             List<Boolean> http_check_tmp = new ArrayList<>();
             List<HttpResponse> expired_conditions_tmp = new ArrayList<>();
             List<Boolean> tools_check_tmp = new ArrayList<>();
