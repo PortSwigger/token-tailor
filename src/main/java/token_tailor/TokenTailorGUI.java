@@ -5,7 +5,7 @@ import java.awt.Component;
 import java.awt.Container;
 import java.awt.Dimension;
 import java.awt.Font;
-
+import java.awt.Frame;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
@@ -96,6 +96,9 @@ public class TokenTailorGUI extends JPanel {
 
     boolean importFlow;
 
+    private final Frame burpFrame;
+
+
     public TokenTailorGUI(MontoyaApi montoyaApi, Logging logging, PersistedList<HttpRequestResponse> req_res, PersistedList<HttpResponse> expired_conditions, PersistedList<Boolean> active_state, PersistedList<Boolean> tools_check, PersistedList<Boolean> http_check) {
         this.logging = logging;
         this.montoyaApi = montoyaApi;
@@ -105,6 +108,8 @@ public class TokenTailorGUI extends JPanel {
         this.active_state = active_state;
         this.tools_check = tools_check;
         this.http_check = http_check;
+
+        this.burpFrame = montoyaApi.userInterface().swingUtils().suiteFrame();
 
         initComponents();
     }
@@ -623,7 +628,7 @@ public class TokenTailorGUI extends JPanel {
         helpPane.setBorder(BorderFactory.createEmptyBorder());
 
         // help content
-        JOptionPane.showMessageDialog(null, helpPane, "Help Resources", JOptionPane.INFORMATION_MESSAGE);
+        JOptionPane.showMessageDialog(burpFrame, helpPane, "Help Resources", JOptionPane.INFORMATION_MESSAGE);
     
         });
 
@@ -662,7 +667,7 @@ public class TokenTailorGUI extends JPanel {
                 try {
                     content = new String(Files.readAllBytes(Paths.get(selectedFile.getPath())));
                 } catch (IOException e) {
-                    JOptionPane.showMessageDialog(null, "Error reading the file", "File Error", JOptionPane.ERROR_MESSAGE);
+                    JOptionPane.showMessageDialog(burpFrame, "Error reading the file", "File Error", JOptionPane.ERROR_MESSAGE);
                     logTextArea.insert(getFormattedTime() + " - Error reading the file\n",0);
                     return null;
                 }
@@ -670,11 +675,11 @@ public class TokenTailorGUI extends JPanel {
                 // Return the decrypted content
                 return content;
             } else {
-                JOptionPane.showMessageDialog(null, "Please select a file with .json extension", "Invalid File", JOptionPane.ERROR_MESSAGE);
+                JOptionPane.showMessageDialog(burpFrame, "Please select a file with .json extension", "Invalid File", JOptionPane.ERROR_MESSAGE);
                 logTextArea.insert(getFormattedTime() + " - Please select a file with .json extension\n",0);
             }
         } else {
-            JOptionPane.showMessageDialog(null, "No file was selected", "Cancelled", JOptionPane.WARNING_MESSAGE);
+            JOptionPane.showMessageDialog(burpFrame, "No file was selected", "Cancelled", JOptionPane.WARNING_MESSAGE);
             logTextArea.insert(getFormattedTime() + " - No file was selected\n",0);
         }
 
@@ -715,9 +720,10 @@ public class TokenTailorGUI extends JPanel {
             combinedList.add(map);
         }
 
-        // Convert the list of combined objects to JSON
+        //Convert the list of combined objects to JSON
         Gson gson = new Gson();
         return gson.toJson(combinedList);
+
     }
 
     private void exportJsonFile(String jsonContent) {
@@ -742,15 +748,15 @@ public class TokenTailorGUI extends JPanel {
             // Write the content to the file
             try (FileWriter fileWriter = new FileWriter(fileToSave)) {
                 fileWriter.write(jsonContent);
-                JOptionPane.showMessageDialog(null, "File was saved successfully!");
+                JOptionPane.showMessageDialog(burpFrame, "File was saved successfully!");
                 logTextArea.insert(getFormattedTime()+" - File was saved successfully.\n", 0);
             } catch (IOException e) {
-                JOptionPane.showMessageDialog(null, "Error writing the file", "File Error", JOptionPane.ERROR_MESSAGE);
+                JOptionPane.showMessageDialog(burpFrame, "Error writing the file", "File Error", JOptionPane.ERROR_MESSAGE);
                 logTextArea.insert(getFormattedTime()+" - Error writing the file.\n", 0);
 
             }
         } else {
-            JOptionPane.showMessageDialog(null, "File save cancelled.", "Cancelled", JOptionPane.WARNING_MESSAGE);
+            JOptionPane.showMessageDialog(burpFrame, "File save cancelled.", "Cancelled", JOptionPane.WARNING_MESSAGE);
             logTextArea.insert(getFormattedTime()+" - File save cancelled.\n", 0);
         }
     }
@@ -766,14 +772,14 @@ public class TokenTailorGUI extends JPanel {
             try {
                 dataList = gson.fromJson(content, listType);
             } catch (Exception e) {
-                JOptionPane.showMessageDialog(null, "Invalid JSON format.");
+                JOptionPane.showMessageDialog(burpFrame, "Invalid JSON format.");
                 logTextArea.insert(getFormattedTime()+" - Invalid JSON format.\n", 0);
                 return;
             }
     
             // Validate the content structure
             if (!isValidContent(dataList)) {
-                JOptionPane.showMessageDialog(null, "Invalid content structure.");
+                JOptionPane.showMessageDialog(burpFrame, "Invalid content structure.");
                 logTextArea.insert(getFormattedTime()+" - Invalid content structure\n", 0);
                 return;
             }
@@ -906,7 +912,7 @@ public class TokenTailorGUI extends JPanel {
             this.repaint();
             
         } else {
-            JOptionPane.showMessageDialog(null, "The file is empty");
+            JOptionPane.showMessageDialog(burpFrame, "The file is empty");
             logTextArea.insert(getFormattedTime()+" - The file is empty\n", 0);
         }
     }
@@ -935,10 +941,7 @@ public class TokenTailorGUI extends JPanel {
     return true;
 }
     private void activeError(String str) {
-        JOptionPane.showMessageDialog(null,
-                "Error: " + str,
-                "Error",
-                JOptionPane.ERROR_MESSAGE);
+        JOptionPane.showMessageDialog(burpFrame, "Error: " + str, "Error", JOptionPane.ERROR_MESSAGE);
         activeState.setText("OFF");
         impExp.setText("IMPORT");
         activeState.setSelected(false);
@@ -1480,7 +1483,7 @@ public class TokenTailorGUI extends JPanel {
                             try {
                                 port = Integer.parseInt(request.header("Host").value().split(":")[1]);
                             } catch (Exception e) {
-                                JOptionPane.showMessageDialog(null, e, "The provided port number is invalid", JOptionPane.ERROR_MESSAGE);
+                                JOptionPane.showMessageDialog(burpFrame, e, "The provided port number is invalid", JOptionPane.ERROR_MESSAGE);
                                 logTextArea.insert(getFormattedTime()+" - The provided port number is invalid\n", 0);
                                 return;
                             }
@@ -1492,7 +1495,7 @@ public class TokenTailorGUI extends JPanel {
                         HttpRequest userRequestHttp = HttpRequest.httpRequest(userService, request.toByteArray());
     
                         if (!userRequestHttp.isInScope()) {
-                            JOptionPane.showMessageDialog(null, "URL not in scope: " + host, "Error", JOptionPane.ERROR_MESSAGE);
+                            JOptionPane.showMessageDialog(burpFrame, "URL not in scope: " + host, "Error", JOptionPane.ERROR_MESSAGE);
                             logTextArea.insert(getFormattedTime()+" - URL not in scope: " + host +"\n", 0);
                             return;
                         } else {
@@ -1503,7 +1506,7 @@ public class TokenTailorGUI extends JPanel {
                                         HttpRequestResponse reqRes = montoyaApi.http().sendRequest(userRequestHttp, HttpMode.AUTO);
                                         return reqRes;
                                     } catch (Exception e) {
-                                        JOptionPane.showMessageDialog(null, e, "Error during the request", JOptionPane.ERROR_MESSAGE);
+                                        JOptionPane.showMessageDialog(burpFrame, e, "Error during the request", JOptionPane.ERROR_MESSAGE);
                                         logTextArea.insert(getFormattedTime()+" - Error during the request\n", 0);
                                         return null;
                                     }
@@ -1522,7 +1525,7 @@ public class TokenTailorGUI extends JPanel {
                                             http_check.set(index, httpCheck.isSelected());
                                         }
                                     } catch (InterruptedException | ExecutionException e) {
-                                        JOptionPane.showMessageDialog(null, e, "Error showing the response", JOptionPane.ERROR_MESSAGE);
+                                        JOptionPane.showMessageDialog(burpFrame, e, "Error showing the response", JOptionPane.ERROR_MESSAGE);
                                         logTextArea.insert(getFormattedTime()+" - Error showing the response\n", 0);
                                     }
                                 }
@@ -1776,4 +1779,5 @@ public class TokenTailorGUI extends JPanel {
         private JScrollPane jScrollPane9;
         private JPanel jPanel3;
         private List<JCheckBox> checkboxList;
+
     }
