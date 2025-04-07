@@ -403,29 +403,23 @@ public class CustomHttpHandler implements HttpHandler {
 
                         HttpRequest request = HttpRequest.httpRequest(service, currentReqRes.get(j).request().toByteArray());
 
-                        if (!request.isInScope()) {
-                                this.logging.logToOutput("Error: URL not in scope: " + currentReqRes.get(j).request().url());
+                        try {
+                                currentReqRes.set( j, montoyaApi.http().sendRequest(request, HttpMode.AUTO));
+
+                        } catch (Exception e) {
+
+                                // Handle the exception here
+                                this.logging.logToOutput("Error during the request " + e.getStackTrace().toString());
+                                return null;
+                        }
+
+                        if (currentReqRes.get(j).response().toByteArray().length() == 0){
+                                this.logging.logToOutput("Empty response received");
                                 return null;
                         } else {
 
-                                try {
-                                        currentReqRes.set( j, montoyaApi.http().sendRequest(request, HttpMode.AUTO));
-        
-                                } catch (Exception e) {
-        
-                                        // Handle the exception here
-                                        this.logging.logToOutput("Error during the request " + e.getStackTrace().toString());
-                                        return null;
-                                }
-
-                                if (currentReqRes.get(j).response().toByteArray().length() == 0){
-                                        this.logging.logToOutput("Empty response received");
-                                        return null;
-                                } else {
-
-                                        if(j==req_res.size()-1){
-                                               newHeaders = takeSession(currentReqRes.get(j).response(), req_res.get(j).response());
-                                        }
+                                if(j==req_res.size()-1){
+                                        newHeaders = takeSession(currentReqRes.get(j).response(), req_res.get(j).response());
                                 }
                         }
                 }
@@ -457,7 +451,12 @@ public class CustomHttpHandler implements HttpHandler {
                 }
 
                 if (foundTool && this.session!=null) {
+                        if (!requestToBeSent.isInScope()) {
+                                this.logging.logToOutput("Error: URL not in scope: " + requestToBeSent.url());
+                                return RequestToBeSentAction.continueWith(requestToBeSent);
+                        } else {
                         return RequestToBeSentAction.continueWith(editRequest(requestToBeSent, this.session));
+                }
                 } else {
                         this.session = null;
                         return RequestToBeSentAction.continueWith(requestToBeSent);
