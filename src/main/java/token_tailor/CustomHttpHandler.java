@@ -82,23 +82,23 @@ public class CustomHttpHandler implements HttpHandler {
                 return false;
         }
         
-        private static boolean isBasicAuth(String input) {
-            try {
-                // Check if the input is a valid Base64 string
-                byte[] decodedBytes = Base64.getDecoder().decode(input);
-                String decodedString = new String(decodedBytes);
-    
-                // Check if the decoded string matches the "string:string" format
-                String stringStringRegex = "^[^:]+:[^:]+$";
-                Pattern pattern = Pattern.compile(stringStringRegex);
-                Matcher matcher = pattern.matcher(decodedString);
-    
-                return matcher.matches();
-            } catch (IllegalArgumentException e) {
-                // Catch the exception if the input is not a valid Base64 string
-                return false;
+        private boolean isBasicAuth(String input) {
+                try {
+                    // Use Montoya's Base64 utils to decode
+                    ByteArray decodedBytes = montoyaApi.utilities().base64Utils().decode(input);
+                    String decodedString = decodedBytes.toString();
+            
+                    // Check if the decoded string matches the "string:string" format
+                    String stringStringRegex = "^[^:]+:[^:]+$";
+                    Pattern pattern = Pattern.compile(stringStringRegex);
+                    Matcher matcher = pattern.matcher(decodedString);
+            
+                    return matcher.matches();
+                } catch (Exception e) {
+                    // Handle any decoding errors (Montoya may throw its own exceptions)
+                    return false;
+                }
             }
-        }
 
         private List<String> extractBasicAuth(String text) {
                 List<String> basics = new ArrayList<>();
