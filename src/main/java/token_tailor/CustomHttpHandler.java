@@ -3,7 +3,6 @@ package token_tailor;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -42,6 +41,10 @@ public class CustomHttpHandler implements HttpHandler {
         Map<Instant, HttpResponse> tokenHistory = new HashMap<>();
         Boolean isTokenNew = false;
 
+        private Pattern jwtPattern = Pattern.compile("\\b(eyJ[A-Za-z0-9-_]+)\\.(eyJ[A-Za-z0-9-_]+)\\.([A-Za-z0-9-_]+)\\b", Pattern.CASE_INSENSITIVE);
+        private Pattern basicAuthPattern = Pattern.compile("[A-Za-z0-9+/]{6,}={0,}", Pattern.CASE_INSENSITIVE);
+        private Pattern basic2Pattern = Pattern.compile("^[^:]+:[^:]+$", Pattern.CASE_INSENSITIVE);
+
         public CustomHttpHandler(MontoyaApi montoyaApi, Logging logging, PersistedList<HttpRequestResponse> req_res, PersistedList<HttpResponse> expired_conditions, PersistedList<Boolean> active_state , PersistedList<Boolean> tools_check, PersistedList<Boolean> http_check ) {
                 
                 this.logging = logging;
@@ -56,8 +59,7 @@ public class CustomHttpHandler implements HttpHandler {
 
         private List<String> extractJwts(String text) {
                 List<String> jwts = new ArrayList<>();
-                String pattern = "\\b(eyJ[A-Za-z0-9-_]+)\\.(eyJ[A-Za-z0-9-_]+)\\.([A-Za-z0-9-_]+)\\b";
-                Matcher matcher = Pattern.compile(pattern , Pattern.CASE_INSENSITIVE).matcher(text);
+                Matcher matcher = jwtPattern.matcher(text);
         
                 while (matcher.find()) {
                         jwts.add(matcher.group());
@@ -67,9 +69,8 @@ public class CustomHttpHandler implements HttpHandler {
         }
 
         private boolean isJWT(String value) {
-                String jwtRegex = "\\b(eyJ[A-Za-z0-9-_]+)\\.(eyJ[A-Za-z0-9-_]+)\\.([A-Za-z0-9-_]+)\\b";
-                Pattern pattern = Pattern.compile(jwtRegex);
-                Matcher matcher = pattern.matcher(value);
+
+                Matcher matcher = jwtPattern.matcher(value);
 
                 while (matcher.find()) {
                         String[] parts = matcher.group(0).split("\\.");
@@ -89,9 +90,7 @@ public class CustomHttpHandler implements HttpHandler {
                     String decodedString = decodedBytes.toString();
             
                     // Check if the decoded string matches the "string:string" format
-                    String stringStringRegex = "^[^:]+:[^:]+$";
-                    Pattern pattern = Pattern.compile(stringStringRegex);
-                    Matcher matcher = pattern.matcher(decodedString);
+                    Matcher matcher = basic2Pattern.matcher(decodedString);
             
                     return matcher.matches();
                 } catch (Exception e) {
@@ -102,8 +101,7 @@ public class CustomHttpHandler implements HttpHandler {
 
         private List<String> extractBasicAuth(String text) {
                 List<String> basics = new ArrayList<>();
-                String pattern = "[A-Za-z0-9+]{6,}={0,}";
-                Matcher matcher = Pattern.compile(pattern , Pattern.CASE_INSENSITIVE).matcher(text);
+                Matcher matcher = basicAuthPattern.matcher(text);
         
                 while (matcher.find()) {
                         basics.add(matcher.group());
@@ -289,9 +287,9 @@ public class CustomHttpHandler implements HttpHandler {
 
                                         Pattern pattern;
                                         if(basic.isBlank()){
-                                                pattern = Pattern.compile("\\b(eyJ[A-Za-z0-9-_]+)\\.(eyJ[A-Za-z0-9-_]+)\\.([A-Za-z0-9-_]+)\\b", Pattern.CASE_INSENSITIVE);
+                                                pattern = jwtPattern;
                                         } else {
-                                                pattern = Pattern.compile("^[^:]+:[^:]+$", Pattern.CASE_INSENSITIVE);
+                                                pattern = basic2Pattern;
                                         }
                                         
                                         List<String> tokens = new ArrayList<>();

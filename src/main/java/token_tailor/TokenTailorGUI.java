@@ -95,6 +95,9 @@ public class TokenTailorGUI extends JPanel {
 
     private final Frame burpFrame;
 
+    private Pattern jwtPattern = Pattern.compile("\\b(eyJ[A-Za-z0-9-_]+)\\.(eyJ[A-Za-z0-9-_]+)\\.([A-Za-z0-9-_]+)\\b", Pattern.CASE_INSENSITIVE);
+    private Pattern basicAuthPattern = Pattern.compile("[A-Za-z0-9+/]{6,}={0,}", Pattern.CASE_INSENSITIVE);
+    private Pattern basic2Pattern = Pattern.compile("^[^:]+:[^:]+$", Pattern.CASE_INSENSITIVE);
 
     public TokenTailorGUI(MontoyaApi montoyaApi, Logging logging, PersistedList<HttpRequestResponse> req_res, PersistedList<HttpResponse> expired_conditions, PersistedList<Boolean> active_state, PersistedList<Boolean> tools_check, PersistedList<Boolean> http_check) {
         this.logging = logging;
@@ -186,11 +189,6 @@ public class TokenTailorGUI extends JPanel {
                                         HttpResponse res = req_res.get(i).response();
 
                                         // work on the response to find the bearer
-                                        String jwtRegex = "\\b(eyJ[A-Za-z0-9-_]+)\\.(eyJ[A-Za-z0-9-_]+)\\.([A-Za-z0-9-_]+)\\b";
-                                        String basicAuthRegex = "[A-Za-z0-9+]{6,}={0,}";
-                                        Pattern jwtPattern = Pattern.compile(jwtRegex);
-                                        Pattern basicAuthPattern = Pattern.compile(basicAuthRegex);
-
                                         // check in all the response
                                         Matcher jwtMatcher = jwtPattern.matcher(res.toString());
                                         Matcher basicAuthMatcher = basicAuthPattern.matcher(res.toString());
@@ -1739,9 +1737,8 @@ public class TokenTailorGUI extends JPanel {
         }
     
         private boolean isJWT(String value) {
-            String jwtRegex = "\\b(eyJ[A-Za-z0-9-_]+)\\.(eyJ[A-Za-z0-9-_]+)\\.([A-Za-z0-9-_]+)\\b";
-            Pattern pattern = Pattern.compile(jwtRegex);
-            Matcher matcher = pattern.matcher(value);
+
+            Matcher matcher = jwtPattern.matcher(value);
             return matcher.matches();
         }
 
@@ -1752,9 +1749,7 @@ public class TokenTailorGUI extends JPanel {
                 String decodedString = decodedBytes.toString();
         
                 // Check if the decoded string matches the "string:string" format
-                String stringStringRegex = "^[^:]+:[^:]+$";
-                Pattern pattern = Pattern.compile(stringStringRegex);
-                Matcher matcher = pattern.matcher(decodedString);
+                Matcher matcher = basic2Pattern.matcher(decodedString);
         
                 return matcher.matches();
             } catch (Exception e) {
