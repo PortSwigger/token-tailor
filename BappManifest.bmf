@@ -1,0 +1,13 @@
+Uuid: b85023bffa3a4a3fb51d5e0c6f870c11
+ExtensionType: 1
+Name: Token Tailor
+RepoName: token-tailor
+ScreenVersion: 1.0.1
+SerialVersion: 1
+MinPlatformVersion: 16
+ProOnly: False
+Author: forteBruno
+ShortDescription: Simplify security testing by automating JWT renewal.
+EntryPoint: target/token_tailor-1.0.1.jar
+BuildCommand: mvn package -DskipTests=true -Dmaven.javadoc.skip=true -B
+SupportedProducts: Pro, Community

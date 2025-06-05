@@ -1,0 +1,20 @@
+<p>Token Tailor automates the renewal of JWT and Basic authentication tokens. By eliminating the need for manual token extraction and updates, it reduces scanning errors and improves your testing workflow. Token Tailor enables session management for all traffic passing through Burp Suite, ensuring seamless authentication renewal and minimizing downtime during scans.</p>
+
+<h2>Features</h2>
+
+<ul>
+  <li><strong>Tool-specific scope:</strong> Choose from specific tools or all traffic through Burp Suite to monitor for expired tokens.</li>
+  <li><strong>Easy configuration:</strong> Define a flow to retrieve a Bearer or Basic token by copying the request into the first tab. Subsequent tabs can be added to define the flow, with headers enclosed in <code class="InlineCode">&sect;</code> symbols for automatic inclusion or updates in requests.</li>
+  <li><strong>Expiry Conditions:</strong> Set conditions based on response status code, body, or custom text enclosed in <code class="InlineCode">&sect;</code> delimiters to trigger session renewal.</li>
+  <li><strong>Import / Export:</strong> Easily export and import configurations for reuse in new Burp sessions, ensuring token configurations are saved for future use.</li>
+</ul>
+
+<h2>Usage</h2>
+
+<ol>
+  <li>In the "Request" tab, add a request that includes a JWT or Basic session token and send it to execute.</li>
+  <li>Define the expired condition in the "Exp" tab by specifying the response the server returns when the session expires. This typically includes status codes and response body comparisons.</li>
+  <li>Activate the Token Tailor extension by toggling the button at the bottom-left.</li>
+</ol>
+
+<p><strong>Note:</strong> For external tools like SQLMap, configure them to use the Burp Suite proxy, allowing Token Tailor to renew tokens and handle requests seamlessly.</p>
