@@ -70,35 +70,56 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 
 /**
+ * Token Tailor GUI - Main panel for the Burp Suite extension that automates token management.
+ * This extension helps automate the process of obtaining and refreshing authentication tokens
+ * (JWT and Basic Auth) during security testing.
  *
  * @author br1
  */
 
 public class TokenTailorGUI extends JPanel {
 
+    // Core Burp Suite integration components
     Logging logging;
     MontoyaApi montoyaApi;
 
-    PersistedList<HttpRequestResponse> req_res;
-    PersistedList<HttpResponse> expired_conditions;
-    PersistedList<Boolean> active_state;
-    PersistedList<Boolean> tools_check;
-    PersistedList<Boolean> http_check;
+    // Persistent storage for extension state
+    PersistedList<HttpRequestResponse> req_res;              // Stores request/response pairs for token acquisition
+    PersistedList<HttpResponse> expired_conditions;          // Stores response patterns that indicate expired tokens
+    PersistedList<Boolean> active_state;                     // Stores whether the extension is active
+    PersistedList<Boolean> tools_check;                      // Stores which Burp tools are monitored
+    PersistedList<Boolean> http_check;                       // Stores HTTP/HTTPS settings for each request
 
+    // UI components for editing HTTP messages
     private ArrayList<HttpRequestEditor> editor_requests;
     private ArrayList<HttpResponseEditor> editor_responses;
     private ArrayList<HttpResponseEditor> editor_expired_conditions;
     private ArrayList<JCheckBox> checkboxes_tools_check;
     private ArrayList<JToggleButton> checkboxes_http_check;
 
+    // Flag to indicate if we're currently importing configuration
     boolean importFlow;
 
+    // Reference to Burp Suite main frame for dialogs
     private final Frame burpFrame;
 
-    private Pattern jwtPattern = Pattern.compile("\\b(eyJ[A-Za-z0-9-_]+)\\.(eyJ[A-Za-z0-9-_]+)\\.([A-Za-z0-9-_]+)\\b", Pattern.CASE_INSENSITIVE);
+    // Regular expressions for token detection
+    private Pattern jwtPattern = Pattern.compile("\\b([A-Za-z0-9-_]{4,})\\.([A-Za-z0-9-_]{4,})\\.([A-Za-z0-9-_]{4,})\\b", Pattern.CASE_INSENSITIVE);
     private Pattern basicAuthPattern = Pattern.compile("[A-Za-z0-9+/]{6,}={0,}", Pattern.CASE_INSENSITIVE);
     private Pattern basic2Pattern = Pattern.compile("^[^:]+:[^:]+$", Pattern.CASE_INSENSITIVE);
 
+    /**
+     * Constructor for TokenTailorGUI.
+     * Initializes the GUI panel with references to Burp Suite APIs and persistent storage.
+     *
+     * @param montoyaApi The Montoya API for Burp Suite integration
+     * @param logging Logger for extension messages
+     * @param req_res Persistent list of request/response pairs for token acquisition
+     * @param expired_conditions Persistent list of expired token response patterns
+     * @param active_state Persistent state of extension activation
+     * @param tools_check Persistent state of which Burp tools to monitor
+     * @param http_check Persistent state of HTTP/HTTPS settings
+     */
     public TokenTailorGUI(MontoyaApi montoyaApi, Logging logging, PersistedList<HttpRequestResponse> req_res, PersistedList<HttpResponse> expired_conditions, PersistedList<Boolean> active_state, PersistedList<Boolean> tools_check, PersistedList<Boolean> http_check) {
         this.logging = logging;
         this.montoyaApi = montoyaApi;
@@ -114,8 +135,14 @@ public class TokenTailorGUI extends JPanel {
         initComponents();
     }
 
+    /**
+     * Initializes all GUI components and sets up the layout.
+     * Creates the main UI structure including tabbed panes for requests, expired conditions,
+     * and the control panel with import/export functionality.
+     */
     private void initComponents() {
 
+        // Initialize Swing components
         jScrollPane9 = new JScrollPane();
         jPanel3 = new JPanel();
         impExp = new JButton("IMPORT");
@@ -136,21 +163,26 @@ public class TokenTailorGUI extends JPanel {
         logTextArea = new JTextArea(10, 30);
         jLabel7 = new JLabel();
 
+        // Initialize state variables
         importFlow = false;
-    
+
+        // Initialize editor lists
         editor_requests = new ArrayList<>();
         editor_responses = new ArrayList<>();
         editor_expired_conditions = new ArrayList<>();
         checkboxes_tools_check = new ArrayList<>();
         checkboxes_http_check = new ArrayList<>();
-    
+
+        // Initialize active state in persistent storage
         active_state.add(activeState.isSelected());
-    
+
+        // Configure scroll panes
         jScrollPane9.getVerticalScrollBar().setUnitIncrement(16);
         jScrollPane9.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_ALWAYS);
-    
+
         jPanel3.setBorder(BorderFactory.createEmptyBorder());
-    
+
+        // Import/Export button handler
         impExp.addActionListener(e -> {
             boolean status = active_state.get(0);
             String configuration = "";
@@ -162,16 +194,17 @@ public class TokenTailorGUI extends JPanel {
                 setNewConfiguration(configuration);
             }
         });
-        
-        // start header panel
+
+        // Active state toggle button handler
+        // Validates configuration and activates/deactivates the extension
         activeState.addActionListener(e -> {
 
                 activeState.setText("Processing...");
                 logTextArea.insert(getFormattedTime() + " - Updating extension status...\n",0);
-                // ----------------------
-                //Trying to start the extension
+
+                // Trying to start the extension
                 if (activeState.isSelected()) {
-                        // req_res checks
+                        // Validate request/response pairs
                         for (int i = 1; i < req_res.size(); i++) {
                                 if (i == 0 && req_res.get(i).request().contains("§", false)) {
                                         activeError("Request 1 contains §");
@@ -188,44 +221,31 @@ public class TokenTailorGUI extends JPanel {
                                     } else if (i == (req_res.size() - 1)) {
                                         HttpResponse res = req_res.get(i).response();
 
-                                        // work on the response to find the bearer
-                                        // check in all the response
+                                        // Validate that the last response contains a valid JWT or Basic Auth token
                                         Matcher jwtMatcher = jwtPattern.matcher(res.toString());
                                         Matcher basicAuthMatcher = basicAuthPattern.matcher(res.toString());
                                         Boolean found = false;
                                     
                                         if (jwtMatcher.find()) {
-
-                                            // Split the matched token into parts
-                                            String[] parts = jwtMatcher.group(0).split("\\.");
-                                            if (parts.length == 3) {
-                                    
-                                                String headerEncoded = parts[0].replace('-', '+')
-                                                        .replace('_', '/');
-                                                while (headerEncoded.length() % 4 != 0) {
-                                                    headerEncoded += "=";
-                                                }
-                                                byte[] decodedBytes = Base64.getDecoder()
-                                                        .decode(headerEncoded);
-                                                String decodedHeader = new String(decodedBytes);
-                                                if (decodedHeader.startsWith("{\"alg\":")) {
-                                                    found = true;
-                                                }
+                                            String potentialJWT = jwtMatcher.group(0);
+                                            if (isJWT(potentialJWT)) {
+                                                found = true;
                                             }
                                         } else if (basicAuthMatcher.find()) {
-                                            while(basicAuthMatcher.find()){                                                
-                                        
+                                            // Search for valid Basic Authentication token
+                                            while(basicAuthMatcher.find()){
+
                                                 try {
                                                     int start = basicAuthMatcher.start();
                                                     int end = basicAuthMatcher.end();
 
                                                     String encodedCredentials = res.toString().substring(start, end);
-                                                    
+
                                                     // Decode the Base64 string
                                                     byte[] decodedBytes = Base64.getDecoder().decode(encodedCredentials);
                                                     String decodedCredentials = new String(decodedBytes);
-                                        
-                                                    // Check if the decoded string matches the "string:string" format
+
+                                                    // Check if the decoded string matches the "username:password" format
                                                     String[] parts = decodedCredentials.split(":");
                                                     if (parts.length == 2) {
                                                         found = true;
@@ -249,8 +269,7 @@ public class TokenTailorGUI extends JPanel {
                                     }
                         }
 
-                        // ------------------------------
-                        // expired_conditions checks                             
+                        // Validate expired conditions configuration
                         for (int i = 1; i < expired_conditions.size(); i++) {
                                 if (expired_conditions.get(i).toString().equals("")) {
                                         activeError("Expired Condition" + i + " has the response empty");
@@ -262,8 +281,7 @@ public class TokenTailorGUI extends JPanel {
                                 }
                         }
 
-                        // ------------------------------
-                        // tools_checks checks
+                        // Validate Burp tools selection configuration
                         if(tools_check.get(0)){
                                 for (int i = 1; i < tools_check.size(); i++) {
                                         if(tools_check.get(i)){
@@ -285,27 +303,26 @@ public class TokenTailorGUI extends JPanel {
 
                         }
 
-                        // ------------------------------
-                        // http_check checks
+                        // Validate HTTP/HTTPS configuration
                         for(int i=1; i<http_check.size(); i++){
                                 if(!(http_check.get(i) instanceof Boolean)){
                                         activeError("HTTP checkbox of Req "+i+"is misconfigured"); 
                                         return;
                                 }
                         }
-                        // ------------------------------
-                        // finally turn on
+
+                        // All validations passed - activate the extension
                         active_state.set(0,true);
                         activeState.setText("ON");
                         impExp.setText("EXPORT");
-                        //startMonitoring();
-                        logTextArea.insert(getFormattedTime() + " - Token Tailor is Active\n",0); 
+                        logTextArea.insert(getFormattedTime() + " - Token Tailor is Active\n",0);
                 }else {
+                        // Deactivate the extension
                         active_state.set(0,false);
                         activeState.setText("OFF");
                         impExp.setText("IMPORT");
                         logTextArea.insert(getFormattedTime() +" - Token Tailor was turned off\n", 0);                }
-        
+
         });
     
         title.setFont(new java.awt.Font("Liberation Sans", 1, 24));
@@ -331,11 +348,10 @@ public class TokenTailorGUI extends JPanel {
     
         addReq("Request " + jTabbedPane3.getTabCount(), new JPanel(), jTabbedPane3);
         jTabbedPane3.setSelectedIndex(jTabbedPane3.getTabCount() - 1);
-    
+        // Listener to add new request tabs when "+" tab is selected
         jTabbedPane3.addChangeListener(new ChangeListener() {
             public void stateChanged(ChangeEvent evt) {
                 if (jTabbedPane3.getSelectedIndex() == 0 && importFlow == false) {
-                    //if (active_state.get(0)) { active_state.set(0, false);};
                     turnoffTokenTailor();
                     jTabbedPane3.removeChangeListener(this);
                     addReq("Request " + (jTabbedPane3.getTabCount()), new JPanel(), jTabbedPane3);
@@ -353,7 +369,8 @@ public class TokenTailorGUI extends JPanel {
     
         addExp("Expired Condition " + jTabbedPane4.getTabCount(), new JPanel(), jTabbedPane4);
         jTabbedPane4.setSelectedIndex(jTabbedPane4.getTabCount() - 1);
-    
+
+        // Listener to add new expired condition tabs when "+" tab is selected
         jTabbedPane4.addChangeListener(new ChangeListener() {
             public void stateChanged(ChangeEvent evt) {
                 turnoffTokenTailor();
@@ -371,7 +388,8 @@ public class TokenTailorGUI extends JPanel {
         allTools.setSelected(true);
         tools_check.add(allTools.isSelected());
         checkboxes_tools_check.add(allTools);
-    
+
+        // Create checkboxes for each Burp tool type
         ToolType[] burpTools = ToolType.values();
         for (int k = 1; k < burpTools.length; k++) {
             JCheckBox checkTool = new JCheckBox(toUpperCamelCase(burpTools[k].name()));
@@ -637,12 +655,16 @@ public class TokenTailorGUI extends JPanel {
         constraints.fill = GridBagConstraints.HORIZONTAL;
         this.add(footerPanel, constraints);
     }
-    
+    /**
+     * Opens a file chooser dialog to select and upload a JSON configuration file.
+     *
+     * @return The content of the selected JSON file as a String, or null if no file was selected or an error occurred
+     */
     private String uploadJsonFile() {
-        
+
         final JFileChooser fileChooser = new JFileChooser();
 
-        // accept only .json 
+        // Accept only .json files
         FileNameExtensionFilter filter = new FileNameExtensionFilter("JSON Files", "json");
         fileChooser.setFileFilter(filter);
         fileChooser.setAcceptAllFileFilterUsed(false);
@@ -681,6 +703,12 @@ public class TokenTailorGUI extends JPanel {
         return null;
     }
 
+    /**
+     * Escapes special characters in a string for JSON serialization.
+     *
+     * @param input The string to escape
+     * @return The escaped string safe for JSON
+     */
     private String escapeJson(String input) {
         return input
             .replace("\\", "\\\\")
@@ -690,6 +718,12 @@ public class TokenTailorGUI extends JPanel {
             .replace("\t", "\\t");
     }
 
+    /**
+     * Generates a JSON representation of the current extension configuration.
+     * Includes all request/response pairs, expired conditions, tool selections, and HTTP settings.
+     *
+     * @return JSON string representing the current configuration
+     */
     private String currentConfiguration() {
         JsonUtils jsonUtils = montoyaApi.utilities().jsonUtils();
         String json = "[]"; // Start with an empty array
@@ -720,6 +754,12 @@ public class TokenTailorGUI extends JPanel {
         return json;
     }
 
+    /**
+     * Exports the extension configuration to a JSON file.
+     * Opens a file chooser dialog to select the save location.
+     *
+     * @param jsonContent The JSON string to export
+     */
     private void exportJsonFile(String jsonContent) {
 
         final JFileChooser fileChooser = new JFileChooser();
@@ -755,6 +795,13 @@ public class TokenTailorGUI extends JPanel {
         }
     }
 
+    /**
+     * Loads and applies a new configuration from a JSON string.
+     * Parses the JSON content and updates all extension settings including
+     * requests, responses, expired conditions, and tool selections.
+     *
+     * @param content The JSON string containing the configuration
+     */
     private void setNewConfiguration(String content) {
         if (content != null) {
             JsonUtils jsonUtils = montoyaApi.utilities().jsonUtils();
@@ -937,7 +984,14 @@ public class TokenTailorGUI extends JPanel {
             logTextArea.insert(getFormattedTime()+" - The file is empty\n", 0);
         }
     }
-    
+
+    /**
+     * Validates the structure and content of imported configuration data.
+     * Ensures all keys are valid and values are of the correct type.
+     *
+     * @param dataList The list of configuration items to validate
+     * @return true if the content is valid, false otherwise
+     */
     private boolean isValidContent(List<Map<String, Object>> dataList) {
     Set<String> validKeys = new HashSet<>(Arrays.asList("http_check", "expired_conditions", "tools_check", "Request", "Response"));
     for (Map<String, Object> item : dataList) {
@@ -961,6 +1015,13 @@ public class TokenTailorGUI extends JPanel {
     }
     return true;
 }
+
+    /**
+     * Displays an error dialog and deactivates the extension.
+     * Used when validation fails during extension activation.
+     *
+     * @param str The error message to display
+     */
     private void activeError(String str) {
         JOptionPane.showMessageDialog(burpFrame, "Error: " + str, "Error", JOptionPane.ERROR_MESSAGE);
         activeState.setText("OFF");
@@ -970,6 +1031,11 @@ public class TokenTailorGUI extends JPanel {
 
     }
 
+    /**
+     * Unselects the "All" checkbox when a specific tool is selected.
+     *
+     * @param k The index of the tool that was selected
+     */
     private void unselectAllTools(int k) {
         if (allTools.isSelected()) {
             allTools.setSelected(false);
@@ -978,6 +1044,10 @@ public class TokenTailorGUI extends JPanel {
         }
     }
 
+    /**
+     * Toggles all tool checkboxes based on the "All" checkbox state.
+     * When "All" is selected, individual tool checkboxes are deselected and vice versa.
+     */
     private void selectAllTools() {
 
         Boolean value = allTools.isSelected();
@@ -993,6 +1063,14 @@ public class TokenTailorGUI extends JPanel {
         }
     }
 
+    /**
+     * Adds a new expired condition tab to the tabbed pane.
+     * Creates an HTTP response editor with controls for marking expired token patterns.
+     *
+     * @param title The title for the new tab
+     * @param component The panel component for the tab
+     * @param mainTabbedPane The tabbed pane to add the tab to
+     */
     private void addExp(String title, JPanel component, JTabbedPane mainTabbedPane) {
 
         mainTabbedPane.addTab(title, component);
@@ -1136,6 +1214,15 @@ public class TokenTailorGUI extends JPanel {
         expLayout(component, expComponent, addPar, removePar, description);
     }
 
+    /**
+     * Layouts the expired condition tab with the description, buttons, and HTTP response editor.
+     *
+     * @param component The panel to layout
+     * @param expComponent The HTTP response editor component
+     * @param addPar Button to add § markers
+     * @param removePar Button to remove § markers
+     * @param description The description text pane
+     */
     private void expLayout(JPanel component, Component expComponent, JButton addPar, JButton removePar, JTextPane description) {
 
         component.setLayout(new GridBagLayout());
@@ -1181,8 +1268,15 @@ public class TokenTailorGUI extends JPanel {
         gbc_exp.fill = GridBagConstraints.BOTH;
         component.add(expComponent, gbc_exp);
     }
-    
 
+    /**
+     * Adds a new request tab to the tabbed pane.
+     * Creates HTTP request and response editors with controls for token acquisition workflow.
+     *
+     * @param title The title for the new tab
+     * @param component The panel component for the tab
+     * @param mainTabbedPane The tabbed pane to add the tab to
+     */
     private void addReq(String title, JPanel component, JTabbedPane mainTabbedPane) {
 
         mainTabbedPane.addTab(title, component);
@@ -1584,18 +1678,35 @@ public class TokenTailorGUI extends JPanel {
     
             addReqLayout(component, description_req, description_res, requestComponent, responseComponent, addSecRes, removeSecRes, httpCheck, send_btn, clearReq_btn);
         }
-    
+
+        /**
+         * Deactivates Token Tailor if it is currently active.
+         * Updates UI state and logs the action.
+         */
         private void turnoffTokenTailor() {
             if (active_state.get(0)) {
                 active_state.set(0, false);
                 activeState.setText("OFF");
                 activeState.setSelected(false);
                 impExp.setText("IMPORT");
-                //stopMonitoring();
                 logTextArea.insert(getFormattedTime() +" - Token Tailor was turned off\n", 0);
             }
         }
-    
+
+        /**
+         * Layouts the request tab with descriptions, buttons, and HTTP request/response editors.
+         *
+         * @param tabPanel The panel to layout
+         * @param description_req Description for the request editor
+         * @param description_res Description for the response editor
+         * @param requestComponent The HTTP request editor component
+         * @param responseComponent The HTTP response editor component
+         * @param addSecRes Button to add § markers
+         * @param removeSecRes Button to remove § markers
+         * @param httpCheck Toggle button for HTTP/HTTPS selection
+         * @param send_btn Button to send the request
+         * @param clearReq_btn Button to clear the editors
+         */
         private void addReqLayout(JPanel tabPanel, JTextPane description_req, JTextPane description_res, Component requestComponent, Component responseComponent, JButton addSecRes, JButton removeSecRes, JToggleButton httpCheck, JButton send_btn, JButton clearReq_btn) {
                 tabPanel.setLayout(new GridBagLayout());
                 GridBagConstraints gbc_req = new GridBagConstraints();
@@ -1673,7 +1784,14 @@ public class TokenTailorGUI extends JPanel {
                 gbc_req.gridx = 1;
                 tabPanel.add(responseComponent, gbc_req);
             }
-    
+
+        /**
+         * Removes a tab from a tabbed pane and updates the indices of remaining tabs.
+         *
+         * @param mainTabbedPane The tabbed pane to remove the tab from
+         * @param indexToRemove The index of the tab to remove
+         * @param prefix The prefix used in tab titles ("Request" or "Expired Condition")
+         */
         private void rmTab(JTabbedPane mainTabbedPane, int indexToRemove, String prefix) {
             if (indexToRemove > 0) {
                 mainTabbedPane.removeTabAt(indexToRemove);
@@ -1708,25 +1826,51 @@ public class TokenTailorGUI extends JPanel {
                 }
             }
         }
-    
+
+        /**
+         * Updates internal lists when a request tab is removed.
+         * Removes the corresponding entries from all request-related lists.
+         *
+         * @param index The index of the request to remove
+         */
         private void updateReqRes (int index){
-            
+
             req_res.remove(index);
             http_check.remove(index);
             editor_requests.remove(index);
             editor_responses.remove(index);
         }
-    
+
+        /**
+         * Updates internal lists when an expired condition tab is removed.
+         * Removes the corresponding entries from expired condition lists.
+         *
+         * @param index The index of the expired condition to remove
+         */
         private void updateExpCond(int index) {
 
             expired_conditions.remove(index);
             editor_expired_conditions.remove(index);
         }
-    
+
+        /**
+         * Checks if a label text should be updated based on the prefix.
+         *
+         * @param text The label text to check
+         * @param prefix The expected prefix
+         * @return true if the text starts with the prefix followed by a space
+         */
         private boolean shouldEditLabel(String text, String prefix) {
             return text.startsWith(prefix + " ");
         }
-    
+
+        /**
+         * Recursively adds a focus listener to a component and all its children.
+         * Used to detect when the user leaves an editor to save changes.
+         *
+         * @param component The component to add the listener to
+         * @param focusAdapter The focus adapter to add
+         */
         private void addFocusListenerRecursively(Component component, FocusAdapter focusAdapter) {
             component.addFocusListener(focusAdapter);
             if (component instanceof Container) {
@@ -1735,13 +1879,204 @@ public class TokenTailorGUI extends JPanel {
                 }
             }
         }
-    
-        private boolean isJWT(String value) {
 
-            Matcher matcher = jwtPattern.matcher(value);
-            return matcher.matches();
+        /**
+         * Checks if a string is a valid JWT token.
+         * Validates both the format (three dot-separated parts) and the structure
+         * (valid header, payload, and signature).
+         *
+         * @param value The string to check
+         * @return true if the value is a valid JWT, false otherwise
+         */
+        private boolean isJWT(String value) {
+            if (value == null || value.trim().isEmpty()) {
+                return false;
+            }
+
+            Matcher matcher = jwtPattern.matcher(value.trim());
+            if (!matcher.matches()) {
+                return false;
+            }
+
+            return validateJWTStructure(value.trim());
         }
 
+        /**
+         * Validates the internal structure of a JWT token.
+         * Decodes and validates the header, payload, and signature.
+         *
+         * @param jwt The JWT string to validate
+         * @return true if the JWT structure is valid, false otherwise
+         */
+        private boolean validateJWTStructure(String jwt) {
+            try {
+                String[] parts = jwt.split("\\.");
+                if (parts.length != 3) {
+                    return false;
+                }
+
+                // Validate header
+                String header = decodeJWTPart(parts[0]);
+                if (header == null || !isValidJWTHeader(header)) {
+                    return false;
+                }
+
+                // Validate payload
+                String payload = decodeJWTPart(parts[1]);
+                if (payload == null || !isValidJWTPayload(payload)) {
+                    return false;
+                }
+
+                // Validate signature format (basic check)
+                if (!isValidJWTSignature(parts[2])) {
+                    return false;
+                }
+
+                return true;
+            } catch (Exception e) {
+                return false;
+            }
+        }
+
+        /**
+         * Decodes a Base64URL-encoded JWT part (header, payload, or signature).
+         * Handles URL-safe characters and missing padding.
+         *
+         * @param part The Base64URL-encoded string to decode
+         * @return The decoded string, or null if decoding fails
+         */
+        private String decodeJWTPart(String part) {
+            try {
+                // Add padding if needed
+                String padded = part;
+                while (padded.length() % 4 != 0) {
+                    padded += "=";
+                }
+                // Replace URL-safe characters
+                padded = padded.replace('-', '+').replace('_', '/');
+
+                byte[] decoded = Base64.getDecoder().decode(padded);
+                return new String(decoded);
+            } catch (Exception e) {
+                return null;
+            }
+        }
+
+        /**
+         * Validates a JWT header.
+         * Checks for proper JSON structure and valid algorithm values.
+         *
+         * @param header The decoded JWT header as a string
+         * @return true if the header is valid, false otherwise
+         */
+        private boolean isValidJWTHeader(String header) {
+            if (!header.startsWith("{") || !header.endsWith("}")) {
+                return false;
+            }
+
+            // Must contain algorithm field
+            if (!header.contains("\"alg\":")) {
+                return false;
+            }
+
+            // Check for valid algorithms
+            String[] validAlgs = {"HS256", "HS384", "HS512", "RS256", "RS384", "RS512", 
+                                 "ES256", "ES384", "ES512", "PS256", "PS384", "PS512", "none"};
+            boolean validAlg = false;
+            for (String alg : validAlgs) {
+                if (header.contains("\"" + alg + "\"")) {
+                    validAlg = true;
+                    break;
+                }
+            }
+
+            if (!validAlg) {
+                return false;
+            }
+
+            // Check for valid token type if present
+            if (header.contains("\"typ\":")) {
+                String[] validTypes = {"JWT", "jwt", "at+jwt", "AT+JWT"};
+                boolean validType = false;
+                for (String type : validTypes) {
+                    if (header.contains("\"" + type + "\"")) {
+                        validType = true;
+                        break;
+                    }
+                }
+                if (!validType) {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        /**
+         * Validates a JWT payload.
+         * Checks for proper JSON structure with balanced braces.
+         *
+         * @param payload The decoded JWT payload as a string
+         * @return true if the payload is valid, false otherwise
+         */
+        private boolean isValidJWTPayload(String payload) {
+            if (!payload.startsWith("{") || !payload.endsWith("}")) {
+                return false;
+            }
+
+            // Basic JSON structure validation
+            int braceCount = 0;
+            boolean inString = false;
+            boolean escaped = false;
+
+            for (char c : payload.toCharArray()) {
+                if (escaped) {
+                    escaped = false;
+                    continue;
+                }
+
+                if (c == '\\') {
+                    escaped = true;
+                    continue;
+                }
+
+                if (c == '"' && !escaped) {
+                    inString = !inString;
+                }
+
+                if (!inString) {
+                    if (c == '{') braceCount++;
+                    else if (c == '}') braceCount--;
+                }
+            }
+
+            return braceCount == 0;
+        }
+
+        /**
+         * Validates a JWT signature format.
+         * Checks that the signature contains only valid Base64URL characters.
+         *
+         * @param signature The JWT signature part to validate
+         * @return true if the signature format is valid, false otherwise
+         */
+        private boolean isValidJWTSignature(String signature) {
+            // Basic signature format validation
+            if (signature == null || signature.isEmpty()) {
+                return false;
+            }
+
+            // Should only contain valid base64url characters
+            return signature.matches("^[A-Za-z0-9_-]+$");
+        }
+
+        /**
+         * Checks if a string is a valid Basic Authentication token.
+         * Decodes the Base64 string and verifies it matches the "username:password" format.
+         *
+         * @param input The Base64-encoded string to check
+         * @return true if the value is valid Basic Auth, false otherwise
+         */
         private boolean isBasicAuth(String input) {
             try {
                 // Use Montoya's Base64 utils to decode
@@ -1758,21 +2093,34 @@ public class TokenTailorGUI extends JPanel {
             }
         }
 
+        /**
+         * Converts an underscore-separated string to Upper Camel Case (Title Case).
+         * Example: "PROXY_HISTORY" becomes "Proxy History"
+         *
+         * @param input The underscore-separated string to convert
+         * @return The converted string in Upper Camel Case
+         */
         private String toUpperCamelCase(String input) {
 
             String[] words = input.split("_");
             StringBuilder result = new StringBuilder();
-            
+
             for (String word : words) {
                 // Convert the first character to uppercase and the rest to lowercase
                 result.append(word.charAt(0))
                       .append(word.substring(1).toLowerCase())
                       .append(" ");
             }
-            
+
             return result.toString().trim();
         }
 
+        /**
+         * Returns the current date and time formatted for log entries.
+         * Format: [dd-MM-yyyy HH:mm:ss]
+         *
+         * @return The formatted timestamp string
+         */
         private String getFormattedTime() {
             return "["+LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm:ss"))+"]";
         }
