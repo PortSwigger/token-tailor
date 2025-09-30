@@ -28,25 +28,57 @@ import burp.api.montoya.http.message.responses.HttpResponse;
 import burp.api.montoya.logging.Logging;
 import burp.api.montoya.persistence.PersistedList;
 
+/**
+ * CustomHttpHandler - Handles HTTP traffic interception for Token Tailor.
+ *
+ * This class intercepts all HTTP requests and responses from Burp Suite tools.
+ * It performs the following key functions:
+ *
+ * 1. Request Interception: Automatically injects fresh tokens into outgoing requests
+ * 2. Response Monitoring: Detects expired token conditions in responses
+ * 3. Token Refresh: Executes the configured token acquisition workflow when tokens expire
+ * 4. Automatic Retry: Retries failed requests with fresh tokens
+ *
+ * The handler maintains session state including the current token headers and tracks
+ * whether a token was just refreshed to avoid infinite refresh loops.
+ *
+ * @author br1
+ */
 public class CustomHttpHandler implements HttpHandler {
+        // Core components
         Logging logging;
         MontoyaApi montoyaApi;
-        PersistedList<HttpRequestResponse> req_res;
-        PersistedList<HttpResponse> expired_conditions;
-        PersistedList<Boolean> active_state;
-        PersistedList<Boolean> tools_check;
-        PersistedList<Boolean> http_check;
 
-        ArrayList<HttpHeader> session;
-        Map<Instant, HttpResponse> tokenHistory = new HashMap<>();
-        Boolean isTokenNew = false;
+        // Configuration from persistent storage
+        PersistedList<HttpRequestResponse> req_res;          // Token acquisition workflow steps
+        PersistedList<HttpResponse> expired_conditions;      // Patterns indicating expired tokens
+        PersistedList<Boolean> active_state;                 // Whether extension is active
+        PersistedList<Boolean> tools_check;                  // Which Burp tools to monitor
+        PersistedList<Boolean> http_check;                   // HTTP/HTTPS settings
 
+        // Runtime state
+        ArrayList<HttpHeader> session;                       // Current token headers to inject
+        Map<Instant, HttpResponse> tokenHistory = new HashMap<>();  // History of token responses
+        Boolean isTokenNew = false;                          // Flag to prevent infinite token refresh loops
+
+        // Regular expressions for token detection
         private Pattern jwtPattern = Pattern.compile("\\b(eyJ[A-Za-z0-9-_]+)\\.(eyJ[A-Za-z0-9-_]+)\\.([A-Za-z0-9-_]+)\\b", Pattern.CASE_INSENSITIVE);
         private Pattern basicAuthPattern = Pattern.compile("[A-Za-z0-9+/]{6,}={0,}", Pattern.CASE_INSENSITIVE);
         private Pattern basic2Pattern = Pattern.compile("^[^:]+:[^:]+$", Pattern.CASE_INSENSITIVE);
 
+        /**
+         * Constructor for CustomHttpHandler.
+         *
+         * @param montoyaApi Burp Suite API for making HTTP requests and utilities
+         * @param logging Logger for extension messages
+         * @param req_res Token acquisition workflow configuration
+         * @param expired_conditions Response patterns that indicate expired tokens
+         * @param active_state Extension activation state
+         * @param tools_check Which Burp tools are monitored
+         * @param http_check HTTP/HTTPS settings for each request
+         */
         public CustomHttpHandler(MontoyaApi montoyaApi, Logging logging, PersistedList<HttpRequestResponse> req_res, PersistedList<HttpResponse> expired_conditions, PersistedList<Boolean> active_state , PersistedList<Boolean> tools_check, PersistedList<Boolean> http_check ) {
-                
+
                 this.logging = logging;
                 this.montoyaApi = montoyaApi;
 
@@ -57,10 +89,16 @@ public class CustomHttpHandler implements HttpHandler {
                 this.http_check = http_check;
         }
 
+        /**
+         * Extracts all JWT tokens from a text string.
+         *
+         * @param text The text to search for JWT tokens
+         * @return A list of JWT tokens found in the text
+         */
         private List<String> extractJwts(String text) {
                 List<String> jwts = new ArrayList<>();
                 Matcher matcher = jwtPattern.matcher(text);
-        
+
                 while (matcher.find()) {
                         jwts.add(matcher.group());
                 }
@@ -68,6 +106,13 @@ public class CustomHttpHandler implements HttpHandler {
                 return jwts;
         }
 
+        /**
+         * Checks if a string is a valid JWT token.
+         * Verifies the token has exactly three dot-separated parts.
+         *
+         * @param value The string to check
+         * @return true if the value is a JWT token, false otherwise
+         */
         private boolean isJWT(String value) {
 
                 Matcher matcher = jwtPattern.matcher(value);
@@ -82,16 +127,23 @@ public class CustomHttpHandler implements HttpHandler {
                 }
                 return false;
         }
-        
+
+        /**
+         * Checks if a string is a valid Basic Authentication token.
+         * Decodes the Base64 string and verifies it matches the "username:password" format.
+         *
+         * @param input The Base64-encoded string to check
+         * @return true if the value is valid Basic Auth, false otherwise
+         */
         private boolean isBasicAuth(String input) {
                 try {
                     // Use Montoya's Base64 utils to decode
                     ByteArray decodedBytes = montoyaApi.utilities().base64Utils().decode(input);
                     String decodedString = decodedBytes.toString();
-            
-                    // Check if the decoded string matches the "string:string" format
+
+                    // Check if the decoded string matches the "username:password" format
                     Matcher matcher = basic2Pattern.matcher(decodedString);
-            
+
                     return matcher.matches();
                 } catch (Exception e) {
                     // Handle any decoding errors (Montoya may throw its own exceptions)
@@ -99,6 +151,12 @@ public class CustomHttpHandler implements HttpHandler {
                 }
             }
 
+        /**
+         * Extracts all Basic Authentication tokens from a text string.
+         *
+         * @param text The text to search for Basic Auth tokens
+         * @return A list of Base64-encoded Basic Auth tokens found in the text
+         */
         private List<String> extractBasicAuth(String text) {
                 List<String> basics = new ArrayList<>();
                 Matcher matcher = basicAuthPattern.matcher(text);
@@ -109,8 +167,23 @@ public class CustomHttpHandler implements HttpHandler {
                 
                 return basics;
         }
-        
-        // Given a request, adds or modifies the headers present in the array.
+
+        /**
+         * Modifies an HTTP request by adding or updating headers.
+         * Handles special cases for Authorization and Cookie headers.
+         *
+         * For Authorization headers:
+         * - Adds "Bearer " prefix for JWT tokens
+         * - Adds "Basic " prefix for Basic Auth tokens
+         *
+         * For Cookie headers:
+         * - Merges new cookies with existing ones
+         * - Updates existing cookie values if names match
+         *
+         * @param request The original HTTP request
+         * @param headers The headers to add or update
+         * @return The modified HTTP request
+         */
         private HttpRequest editRequest (HttpRequest request, ArrayList<HttpHeader> headers) {
 
                 for (HttpHeader ah : headers){
@@ -182,8 +255,21 @@ public class CustomHttpHandler implements HttpHandler {
                 return request;
         }
 
-        // Extracts the necessary headers from the given response object. 
-        // These headers will be used to add new or update existing header values.
+        /**
+         * Extracts authentication headers from an HTTP response.
+         * Compares the actual response with the saved/configured response to extract tokens.
+         *
+         * The method handles two scenarios:
+         * 1. If the saved response contains § markers, only extract values within markers
+         * 2. If no markers, extract all JWT/Basic Auth tokens from the response
+         *
+         * Extracted tokens are converted to Authorization or Cookie headers for injection
+         * into subsequent requests.
+         *
+         * @param response The actual HTTP response received
+         * @param saved The saved/configured response template with optional § markers
+         * @return List of headers to inject, or null if extraction fails
+         */
         private ArrayList<HttpHeader> takeSession(HttpResponse response, HttpResponse saved){
 
                 ArrayList<HttpHeader> headers = new ArrayList<>();
@@ -364,13 +450,27 @@ public class CustomHttpHandler implements HttpHandler {
                 return headers;
         }
 
+        /**
+         * Executes the configured token acquisition workflow.
+         * Performs all requests in the req_res list sequentially, carrying forward
+         * session data (cookies, headers, tokens) between requests.
+         *
+         * The workflow:
+         * 1. Iterate through each configured request
+         * 2. Extract tokens/headers from the previous response
+         * 3. Inject those tokens/headers into the next request
+         * 4. Send the request and capture the response
+         * 5. Extract final tokens from the last response
+         *
+         * @return Headers containing the fresh authentication tokens, or null if workflow fails
+         */
         private ArrayList<HttpHeader> doRequests() {
 
                 List<HttpRequestResponse> currentReqRes = new ArrayList<>(Arrays.asList(HttpRequestResponse.httpRequestResponse(HttpRequest.httpRequest(), HttpResponse.httpResponse())));
                 ArrayList<HttpHeader> newHeaders = new ArrayList<>();
                 this.session = null;
-                
-                // Start the main execution flow.
+
+                // Execute the token acquisition workflow
                 for(int j=1; j < req_res.size(); j++){
 
                         currentReqRes.add(HttpRequestResponse.httpRequestResponse(req_res.get(j).request(), HttpResponse.httpResponse()));
@@ -427,20 +527,33 @@ public class CustomHttpHandler implements HttpHandler {
                 return newHeaders;
         }
 
+        /**
+         * Handles outgoing HTTP requests from Burp Suite tools.
+         * Automatically injects fresh authentication tokens into requests if:
+         * - The extension is active
+         * - The request comes from a monitored tool
+         * - Fresh tokens are available in the session
+         *
+         * @param requestToBeSent The HTTP request about to be sent
+         * @return Action to take (continue with modified or original request)
+         */
         @Override
         public RequestToBeSentAction handleHttpRequestToBeSent(HttpRequestToBeSent requestToBeSent) {
-                
-                // Do normal request if the active condition is false
+
+                // Pass through requests unchanged if extension is inactive
                 if (!active_state.get(0)) {
                         this.session = null;
                         return RequestToBeSentAction.continueWith(requestToBeSent);
                 }
+                // Check if the request comes from a monitored Burp tool
                 ToolType[] burpTools = ToolType.values();
                 Boolean foundTool = false;
 
                 if(tools_check.get(0)){
+                        // "All tools" is selected
                         foundTool = true;
                 } else {
+                        // Check if specific tool is selected
                         for(int k=1; k<tools_check.size(); k++){
                                 if(tools_check.get(k)){
                                         if (burpTools[k].name().equals(requestToBeSent.toolSource().toolType().name())){
@@ -450,6 +563,7 @@ public class CustomHttpHandler implements HttpHandler {
                         }
                 }
 
+                // Inject tokens if tool is monitored and we have fresh tokens
                 if (foundTool && this.session!=null) {
                         if (!requestToBeSent.isInScope()) {
                                 this.logging.logToOutput("Error: URL not in scope: " + requestToBeSent.url());
@@ -461,25 +575,42 @@ public class CustomHttpHandler implements HttpHandler {
                         this.session = null;
                         return RequestToBeSentAction.continueWith(requestToBeSent);
                 }
-                
-                
+
+
         }
 
+        /**
+         * Handles incoming HTTP responses from Burp Suite tools.
+         * Monitors responses for expired token conditions and automatically:
+         * 1. Detects when a token has expired based on configured patterns
+         * 2. Executes the token refresh workflow
+         * 3. Retries the original request with the fresh token
+         * 4. Returns the new response to the user
+         *
+         * This creates a seamless experience where expired tokens are automatically
+         * refreshed without user intervention.
+         *
+         * @param responseReceived The HTTP response that was received
+         * @return Action to take (continue with original or replacement response)
+         */
     @Override
     public ResponseReceivedAction handleHttpResponseReceived(HttpResponseReceived responseReceived) {
-        
-        // Do normal request if the active condition is false
+
+        // Pass through responses unchanged if extension is inactive
         if (!active_state.get(0)) {
                 this.session = null;
                 isTokenNew = false;
                 return ResponseReceivedAction.continueWith(responseReceived);
         }
+        // Check if the response comes from a monitored Burp tool
         ToolType[] burpTools = ToolType.values();
         Boolean foundTool = false;
 
         if(tools_check.get(0)){
+                // "All tools" is selected
                 foundTool = true;
         } else {
+                // Check if specific tool is selected
                 for(int k=1; k<tools_check.size(); k++){
                         if(tools_check.get(k)){
                                 if (burpTools[k].name().equals(responseReceived.toolSource().toolType().name())){
@@ -495,17 +626,18 @@ public class CustomHttpHandler implements HttpHandler {
                 return ResponseReceivedAction.continueWith(responseReceived);
         }
 
-        // check in each payload request if there is the error condition
+        // Check if the response matches any expired token condition
         Short responseCode = responseReceived.statusCode();
         String responseBody = responseReceived.bodyToString();
         Boolean found = false;
 
-        // Start iterating through the expired conditions
+        // Iterate through configured expired conditions
         for(HttpResponse e : expired_conditions){
             Short eCode = e.statusCode();
             String eBody = e.bodyToString();
 
             if(e.contains("§", false)){
+                // Expired condition has § markers - check if marked text is in response
                 ByteArray eByteArray = e.toByteArray();
                 int occur = eByteArray.countMatches("§");
                 if(occur % 2 ==0){
@@ -518,6 +650,7 @@ public class CustomHttpHandler implements HttpHandler {
                         }
                 }
             } else {
+                // No markers - check exact match of status code and body
                 if (responseCode.equals(eCode) && responseBody.equals(eBody)){
                         found = true;
                         break;
@@ -525,42 +658,45 @@ public class CustomHttpHandler implements HttpHandler {
             }
         }
 
+        // Handle expired token condition
         if (found){
-                //Boolean same_responses = false;
-                //Instant currentTime = Instant.now();
 
                 if(isTokenNew){
+                        // We just refreshed the token, but still got expired condition
+                        // Avoid infinite loop - don't refresh again
                         isTokenNew=false;
                         return ResponseReceivedAction.continueWith(responseReceived);
 
                 } else{
-                        // take the new headers
+                        // Token has expired - refresh it
                         this.session = doRequests();
 
                         isTokenNew=true;
-                        
-                        // do again the failed http request with the new bearer
+
+                        // Retry the original request with fresh token
                         if(session.size() > 0) {
-                                                
+
                                 HttpRequest oldRequest = responseReceived.initiatingRequest();
                                 HttpRequest editedRequest = editRequest(oldRequest, this.session);
                                 HttpRequestResponse newRequestResponse = montoyaApi.http().sendRequest(editedRequest);
 
+                                // Check if the retry succeeded (different response than expired condition)
                                 if((newRequestResponse.response().statusCode() !=  responseCode) || !newRequestResponse.response().bodyToString().equals(responseBody)){
+                                        // Success - return the new response
                                         return ResponseReceivedAction.continueWith(newRequestResponse.response());
                                 } else {
-                                        //do nothing
-                                        return ResponseReceivedAction.continueWith(responseReceived); 
+                                        // Still getting expired response - return original
+                                        return ResponseReceivedAction.continueWith(responseReceived);
                                 }
                         } else {
-                                //do nothing - no headers to be added were found
-                                return ResponseReceivedAction.continueWith(responseReceived);  
+                                // Token refresh failed - return original response
+                                return ResponseReceivedAction.continueWith(responseReceived);
                         }
                 }
-                
-                
+
+
         } else {
-            //do nothing - no expired condition found
+            // No expired condition found - pass through the response
             isTokenNew=false;
             return ResponseReceivedAction.continueWith(responseReceived);
         }
